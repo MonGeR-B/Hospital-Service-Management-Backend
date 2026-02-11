@@ -127,6 +127,8 @@ ticketRouter.get(
           createdBy: users.name,
           assignedTo: tickets.assignedToName,
           assignedToId: tickets.assignedToId,
+          workNote: tickets.workNote,
+          managerReviewNote: tickets.managerReviewNote,
           assignedToDepartment: sql<string | null>`
             CASE 
               WHEN ${tickets.assignedToId} IS NOT NULL 
@@ -314,6 +316,7 @@ ticketRouter.post("/:id/assign", requireAuth, async (req, res) => {
       assignedToId,
       assignedToName: employee[0].name,
       status: "In Progress",
+      deadline: deadline ? new Date(deadline) : null,
       updatedAt: new Date(),
     };
 
@@ -400,10 +403,12 @@ ticketRouter.patch("/:id/mark-done", requireAuth, async (req, res) => {
 });
 
 // Manager: Verify completed work
-ticketRouter.patch("/:id/verify", requireAuth, async (req, res) => {
+// Manager: Verify completed work AND add note
+ticketRouter.patch("/:id/manager-verify", requireAuth, async (req, res) => {
   try {
     const user = req.user!;
     const ticketId = Number(req.params.id);
+    const { note } = req.body; // Expect 'note' from frontend
 
     if (user.role !== "manager") {
       return res.status(403).json({ message: "Manager only" });
@@ -424,10 +429,14 @@ ticketRouter.patch("/:id/verify", requireAuth, async (req, res) => {
       });
     }
 
-    // Update status to Verified
+    // Update status to Verified AND save manager note
     const [updated] = await db
       .update(tickets)
-      .set({ status: "Verified" })
+      .set({
+        status: "Verified",
+        managerReviewNote: note, // Save keeping separate from employee workNote
+        updatedAt: new Date()
+      })
       .where(eq(tickets.id, ticketId))
       .returning();
 

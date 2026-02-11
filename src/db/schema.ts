@@ -142,6 +142,9 @@ export const tickets = pgTable("tickets", {
   // department verification
   departmentReviewNote: text("department_review_note"),
 
+  // deadline for ticket completion
+  deadline: timestamp("deadline"),
+
   // timestamps for tracking
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
