@@ -33,6 +33,7 @@ userRouter.get("/assignable", requireAuth, async (req, res) => {
           email: users.email,
           role: users.role,
           unitId: users.unitId,
+          department: users.department,
         })
         .from(users)
         .where(
@@ -49,6 +50,7 @@ userRouter.get("/assignable", requireAuth, async (req, res) => {
           email: users.email,
           role: users.role,
           unitId: users.unitId,
+          department: users.department,
         })
         .from(users)
         .where(

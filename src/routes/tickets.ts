@@ -2,7 +2,7 @@
 import { Router } from "express";
 import { requireAuth, requireAdmin } from "../middleware/auth";
 import { db, ticketAssignments, tickets, units, users } from "../db";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, aliasedTable } from "drizzle-orm";
 import { sendAssignmentEmail } from "../utils/email";
 import { sendAssignmentSMS } from "../utils/sms";
 
@@ -113,36 +113,30 @@ ticketRouter.get(
         return res.status(403).json({ message: "Unauthorized" });
       }
 
+      // Alias for assignee join
+      const assignees = aliasedTable(users, "assignees");
+
       const rows = await db
         .select({
-          id: tickets.id,
-          title: tickets.title,
-          description: tickets.description,
-          category: tickets.category,
-          priority: tickets.priority,
-          status: tickets.status,
-          department: tickets.department,
-          unitId: tickets.unitId,
-          createdAt: tickets.createdAt,
-          createdBy: users.name,
-          assignedTo: tickets.assignedToName,
-          assignedToId: tickets.assignedToId,
-          workNote: tickets.workNote,
-          managerReviewNote: tickets.managerReviewNote,
-          assignedToDepartment: sql<string | null>`
-            CASE 
-              WHEN ${tickets.assignedToId} IS NOT NULL 
-              THEN (SELECT department FROM users WHERE id = ${tickets.assignedToId})
-              ELSE NULL 
-            END
-          `,
+          ticket: tickets,
+          creatorName: users.name,
+          assigneeName: assignees.name,
+          assignedToDepartment: assignees.department, // Get department from joined user
         })
         .from(tickets)
         .leftJoin(users, eq(tickets.createdById, users.id))
+        .leftJoin(assignees, eq(tickets.assignedToId, assignees.id))
         .where(eq(tickets.unitId, unitId))
         .orderBy(desc(tickets.createdAt));
 
-      return res.json({ tickets: rows });
+      const formattedRows = rows.map((row) => ({
+        ...row.ticket,
+        createdBy: row.creatorName,
+        assignedToName: row.assigneeName || row.ticket.assignedToName, // Prefer joined name
+        assignedToDepartment: row.assignedToDepartment, // From joined user
+      }));
+
+      return res.json({ tickets: formattedRows });
     } catch (e) {
       console.error("FETCH ERROR:", e);
       return res.status(500).json({ message: "Server error" });
