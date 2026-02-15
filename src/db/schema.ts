@@ -22,6 +22,7 @@ export const ticketStatusEnum = pgEnum("ticket_status_enum", [
   "Pending",   // <-- ADD THIS
   "Resolved",
   "Verified",
+  "Rejected", // Added Rejected status
   "Closed"
 ]);
 
@@ -144,6 +145,13 @@ export const tickets = pgTable("tickets", {
 
   // deadline for ticket completion
   deadline: timestamp("deadline"),
+
+  // cost of repair/service
+  cost: integer("cost").default(0),
+
+  // rejection reason (if rejected by admin/manager)
+  rejectionReason: text("rejection_reason"),
+  rejectionCount: integer('rejection_count').default(0),
 
   // timestamps for tracking
   startedAt: timestamp("started_at"),

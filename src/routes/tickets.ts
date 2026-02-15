@@ -480,12 +480,57 @@ ticketRouter.patch("/:id/close", requireAuth, async (req, res) => {
   }
 });
 
+// Admin: Reject ticket
+ticketRouter.patch("/:id/reject", requireAuth, async (req, res) => {
+  try {
+    const user = req.user!;
+    const ticketId = Number(req.params.id);
+    const { reason } = req.body;
+
+    // Allow Admin OR Manager
+    if (user.role !== "admin" && user.role !== "manager") {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    if (!reason || reason.trim() === "") {
+      return res.status(400).json({ message: "Rejection reason is required" });
+    }
+
+    const [ticket] = await db
+      .select()
+      .from(tickets)
+      .where(eq(tickets.id, ticketId));
+
+    if (!ticket) {
+      return res.status(404).json({ message: "Ticket not found" });
+    }
+
+    // Update status to Rejected and increment rejectionCount
+    const [updated] = await db
+      .update(tickets)
+      .set({
+        status: "Rejected",
+        rejectionReason: reason,
+        // Increment rejection count (default 0 if null)
+        rejectionCount: (ticket.rejectionCount || 0) + 1,
+        updatedAt: new Date()
+      })
+      .where(eq(tickets.id, ticketId))
+      .returning();
+
+    return res.json({ ticket: updated });
+  } catch (err) {
+    console.error("REJECT ERROR:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
 // Employee: Update work note (but not status)
 ticketRouter.patch("/:id/update", requireAuth, async (req, res) => {
   try {
     const user = req.user!;
     const ticketId = Number(req.params.id);
-    const { comment } = req.body;
+    const { comment, cost } = req.body;
 
     const [ticket] = await db
       .select()
@@ -500,19 +545,18 @@ ticketRouter.patch("/:id/update", requireAuth, async (req, res) => {
       return res.status(403).json({ message: "Not assigned to you" });
     }
 
+    const updateData: any = {
+      workNote: comment ?? ticket.workNote, // Keep existing if not provided // Changed logic: if comment is provided, update workNote. 
+      // Actually, let's allow updating one or both.
+      updatedAt: new Date()
+    };
+
+    if (comment !== undefined) updateData.workNote = comment;
+    if (cost !== undefined) updateData.cost = Number(cost);
+
     const [updated] = await db
       .update(tickets)
-      .set({
-        comment, // This uses the 'comment' field in DB? Or 'workNote'?
-        // Let's check schema. Code assumes 'comment' from user snippet.
-        // Wait, schema check needed. 
-        // Actually I should check schema first.
-        // But let's assume 'comment' or 'workNote'. 
-        // The old code used 'workNote'. 
-        // Let's stick to 'workNote' in DB, but map 'comment' from body.
-        workNote: comment,
-        updatedAt: new Date()
-      })
+      .set(updateData)
       .where(eq(tickets.id, ticketId))
       .returning();
 
@@ -578,7 +622,9 @@ ticketRouter.get(
           sql`
             (${tickets.assignedToId} = ${user.id}) OR 
             (${tickets.assignedManagerId} = ${user.id}) OR 
-            (${tickets.unitId} = ${user.unitId} AND ${tickets.status} = 'Resolved')
+            (${tickets.unitId} = ${user.unitId} AND ${tickets.status} = 'Resolved') OR
+            (${tickets.unitId} = ${user.unitId} AND ${tickets.status} = 'Pending') OR
+            (${tickets.createdById} = ${user.id})
           `
         )
         .orderBy(desc(tickets.createdAt));
@@ -609,7 +655,9 @@ ticketRouter.get(
         })
         .from(tickets)
         .leftJoin(users, eq(tickets.assignedToId, users.id))
-        .where(eq(tickets.assignedToId, req.user!.id))
+        .where(
+          sql`(${tickets.assignedToId} = ${user.id}) OR (${tickets.createdById} = ${user.id})`
+        )
         .orderBy(desc(tickets.createdAt));
 
       const formatted = ticketsList.map(row => ({
